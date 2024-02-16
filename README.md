@@ -1,5 +1,7 @@
 # Some string-template demo
 
+[JEP 465: String Templates](https://openjdk.org/jeps/465)
+
 ## string_template_RUNSHELL.java
 
 - something like [\`shell cmd\`](https://crystal-lang.org/reference/1.11/syntax_and_semantics/literals/command.html) in crystal-lang.
