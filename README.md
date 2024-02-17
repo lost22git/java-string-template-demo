@@ -4,16 +4,18 @@
 
 ## string_template_RUNSHELL.java
 
-- something like [\`shell cmd\`](https://crystal-lang.org/reference/1.11/syntax_and_semantics/literals/command.html) in crystal-lang.
-- `cmd.exe -c "shell cmd"` on windows, `sh -c "shell cmd"` on unix-like
-- `inherit STDERR` and `pipe STDOUT`
-- throws `IOException` when read IO or running thread is interrupted
-
 ### Usage:
 
 ```java
 try {
-    var helpString = RUNSHELL."java --help";
+    switch(RUNSHELL."java --help") {
+        case RunShellResult.Ok(var stdout) -> out.println(stdout);
+        case RunShellResult.Err(var exitCode, var stdout, var stderr) -> {
+            out.println(exitCode);
+            out.println(stdout);
+            out.println(stderr);
+        };
+    }
 } catch (IOException e) {
     e.printStackTrace();
 }
@@ -21,7 +23,14 @@ try {
 
 ```java
 try {
-    var errorString = RUNSHELL."java -x 2>&1";
+    switch(RUNSHELL."java -x 2>&1") {
+        case RunShellResult.Ok(var stdout) -> out.println(stdout);
+        case RunShellResult.Err(var exitCode, var stdout, var stderr) -> {
+            out.println(exitCode);
+            out.println(stdout);
+            out.println(stderr);
+        };
+    }
 } catch (IOException e) {
     e.printStackTrace();
 }
