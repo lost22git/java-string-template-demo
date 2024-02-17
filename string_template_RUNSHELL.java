@@ -12,9 +12,8 @@ import static java.lang.System.out;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.platform.engine.discovery.DiscoverySelectors.selectClass;
 
-import java.util.Arrays;
 import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.nio.file.Files;
 
 //JAVA 21
 //NATIVE_OPTIONS --no-fallback -H:+ReportExceptionStackTraces --enable-preview --enable-monitoring
@@ -47,67 +46,85 @@ public class string_template_RUNSHELL {
 
   static final boolean OS_WIN = System.getProperty("os.name").startsWith("Windows");
 
-  // RUNSHELL."shell cmd"
-  // - something like `shell cmd` in crystal-lang
-  // - inherit stderr and return stdout
-  // - throws IOException
-  static final StringTemplate.Processor<String, IOException> RUNSHELL = st -> {
+  sealed static interface RunShellResult permits RunShellResult.Ok, RunShellResult.Err {
+    record Ok(String stdout) implements RunShellResult {
+    }
+
+    record Err(int exitCode, String stdout, String stderr) implements RunShellResult {
+    }
+  }
+
+  static final StringTemplate.Processor<RunShellResult, IOException> RUNSHELL = st -> {
     var shellCmd = st.interpolate();
     var cmdAndArgs = OS_WIN ? new String[] { "cmd.exe", "/c", shellCmd } : new String[] { "sh", "-c", shellCmd };
 
-    var p = new ProcessBuilder()
-        .command(cmdAndArgs)
-        .redirectError(ProcessBuilder.Redirect.INHERIT)
-        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-        .start();
+    var stderrRedirectPath = Files.createTempFile("RUNSHELL-", null);
 
-    String output = "";
-    try (var in = p.getInputStream()) {
-      output = new String(in.readAllBytes());
-    } catch (IOException e) {
-      p.destroyForcibly();
-      throw e;
+    Process p = null;
+    try{
+      p = new ProcessBuilder()
+          .command(cmdAndArgs)
+          .redirectOutput(ProcessBuilder.Redirect.PIPE)
+          .redirectError(stderrRedirectPath.toFile())
+          .start();
+
+      String stdout = "";
+      try (var in = p.getInputStream()) {
+        stdout = new String(in.readAllBytes());
+      } 
+
+      int  exitCode = p.waitFor();
+
+      if (exitCode == 0) {
+        return new RunShellResult.Ok(stdout);
+      } else {
+        String stderr = Files.readString(stderrRedirectPath);
+        return new RunShellResult.Err(exitCode, stdout, stderr);
+      }
+    } catch(IOException | InterruptedException e){
+      if (p != null) p.destroyForcibly();
+      throw  (IOException)(e instanceof IOException ? e : new IOException(e));
+    } finally {
+      Files.deleteIfExists(stderrRedirectPath);
     }
-
-    try {
-      p.waitFor();
-    } catch (InterruptedException e) {
-      p.destroyForcibly();
-      throw new IOException(e);
-    }
-
-    return output;
   };
 
   @Test
   void test_run_shellcmd_stdout() throws IOException {
     var cmd = "java";
     var args = "--help";
-    var output = RUNSHELL."\{cmd} \{args}";
-    assertTrue(output.contains("Usage:"));
+    switch (RUNSHELL."\{cmd} \{args}") {
+      case RunShellResult.Ok(var stdout) -> assertTrue(stdout.contains("Usage:"));
+      default -> fail();
+    }
   }
 
   @Test
   void test_run_shellcmd_stderr() throws IOException {
     var cmd = "java";
-    var output = RUNSHELL."\{cmd}";
-    out.println(STR."\{output}");
-    assertEquals(output, "");
+    switch (RUNSHELL."\{cmd}") {
+      case RunShellResult.Err(_, _, var stderr) -> assertTrue(stderr.contains("Usage:"));
+      default -> fail();
+    }
   }
 
   @Test
   void test_run_shellcmd_stderr_redirect_to_stdout() throws IOException {
     var cmd = "java";
     var args = "2>&1";
-    var output = RUNSHELL."\{cmd} \{args}";
-    assertTrue(output.contains("Usage:"));
+    switch (RUNSHELL."\{cmd} \{args}") {
+      case RunShellResult.Err(_, var stdout, _) -> assertTrue(stdout.contains("Usage:"));
+      default -> fail();
+    }
   }
 
   @Test
   void test_run_shellcmd_quote() throws IOException {
     var cmd = "fd.exe";
     var args = "-d 1 -g \"*.java\"";
-    var output = RUNSHELL."\{cmd} \{args}";
-    assertTrue(output.contains(".java"));
+    switch (RUNSHELL."\{cmd} \{args}") {
+      case RunShellResult.Ok(var stdout) -> assertTrue(stdout.contains(".java"));
+      default -> fail();
+    }
   }
 }
