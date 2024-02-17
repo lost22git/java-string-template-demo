@@ -14,6 +14,7 @@ import static org.junit.platform.engine.discovery.DiscoverySelectors.selectClass
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 //JAVA 21
 //NATIVE_OPTIONS --no-fallback -H:+ReportExceptionStackTraces --enable-preview --enable-monitoring
@@ -46,22 +47,24 @@ public class string_template_RUNSHELL {
 
   static final boolean OS_WIN = System.getProperty("os.name").startsWith("Windows");
 
-  sealed static interface RunShellResult permits RunShellResult.Ok, RunShellResult.Err {
+  sealed static interface RunShellResult permits RunShellResult.Ok, RunShellResult.Fail, RunShellResult.Err {
     record Ok(String stdout) implements RunShellResult {
     }
 
-    record Err(int exitCode, String stdout, String stderr) implements RunShellResult {
+    record Fail(int exitCode, String stdout, String stderr) implements RunShellResult {
     }
+
+    record Err(IOException e) implements RunShellResult {}
   }
 
-  static final StringTemplate.Processor<RunShellResult, IOException> RUNSHELL = st -> {
+  static final StringTemplate.Processor<RunShellResult, RuntimeException> RUNSHELL = st -> {
     var shellCmd = st.interpolate();
     var cmdAndArgs = OS_WIN ? new String[] { "cmd.exe", "/c", shellCmd } : new String[] { "sh", "-c", shellCmd };
 
-    var stderrRedirectPath = Files.createTempFile("RUNSHELL-", null);
-
+    Path stderrRedirectPath = null;
     Process p = null;
     try{
+      stderrRedirectPath = Files.createTempFile("RUNSHELL-", null);
       p = new ProcessBuilder()
           .command(cmdAndArgs)
           .redirectOutput(ProcessBuilder.Redirect.PIPE)
@@ -79,18 +82,22 @@ public class string_template_RUNSHELL {
         return new RunShellResult.Ok(stdout);
       } else {
         String stderr = Files.readString(stderrRedirectPath);
-        return new RunShellResult.Err(exitCode, stdout, stderr);
+        return new RunShellResult.Fail(exitCode, stdout, stderr);
       }
     } catch(IOException | InterruptedException e){
       if (p != null) p.destroyForcibly();
-      throw  (IOException)(e instanceof IOException ? e : new IOException(e));
+      return new RunShellResult.Err(e instanceof IOException ? (IOException) e : new IOException(e));
     } finally {
-      Files.deleteIfExists(stderrRedirectPath);
+      if (stderrRedirectPath != null) {
+        try {
+          Files.deleteIfExists(stderrRedirectPath);
+        } catch (IOException ignore) {}
+      }
     }
   };
 
   @Test
-  void test_run_shellcmd_stdout() throws IOException {
+  void test_run_shellcmd_stdout() {
     var cmd = "java";
     var args = "--help";
     switch (RUNSHELL."\{cmd} \{args}") {
@@ -100,26 +107,26 @@ public class string_template_RUNSHELL {
   }
 
   @Test
-  void test_run_shellcmd_stderr() throws IOException {
+  void test_run_shellcmd_stderr(){
     var cmd = "java";
     switch (RUNSHELL."\{cmd}") {
-      case RunShellResult.Err(_, _, var stderr) -> assertTrue(stderr.contains("Usage:"));
+      case RunShellResult.Fail(_, _, var stderr) -> assertTrue(stderr.contains("Usage:"));
       default -> fail();
     }
   }
 
   @Test
-  void test_run_shellcmd_stderr_redirect_to_stdout() throws IOException {
+  void test_run_shellcmd_stderr_redirect_to_stdout() {
     var cmd = "java";
     var args = "2>&1";
     switch (RUNSHELL."\{cmd} \{args}") {
-      case RunShellResult.Err(_, var stdout, _) -> assertTrue(stdout.contains("Usage:"));
+      case RunShellResult.Fail(_, var stdout, _) -> assertTrue(stdout.contains("Usage:"));
       default -> fail();
     }
   }
 
   @Test
-  void test_run_shellcmd_quote() throws IOException {
+  void test_run_shellcmd_quote() {
     var cmd = "fd.exe";
     var args = "-d 1 -g \"*.java\"";
     switch (RUNSHELL."\{cmd} \{args}") {

@@ -10,11 +10,12 @@
 try {
     switch(RUNSHELL."java --help") {
         case RunShellResult.Ok(var stdout) -> out.println(stdout);
-        case RunShellResult.Err(var exitCode, var stdout, var stderr) -> {
+        case RunShellResult.Fail(var exitCode, var stdout, var stderr) -> {
             out.println(exitCode);
             out.println(stdout);
             out.println(stderr);
         };
+        case RunShellResult.Err(var e) -> e.printStackTrace();
     }
 } catch (IOException e) {
     e.printStackTrace();
@@ -25,11 +26,12 @@ try {
 try {
     switch(RUNSHELL."java -x 2>&1") {
         case RunShellResult.Ok(var stdout) -> out.println(stdout);
-        case RunShellResult.Err(var exitCode, var stdout, var stderr) -> {
+        case RunShellResult.Fail(var exitCode, var stdout, var stderr) -> {
             out.println(exitCode);
             out.println(stdout);
             out.println(stderr);
         };
+        case RunShellResult.Err(var e) -> e.printStackTrace();
     }
 } catch (IOException e) {
     e.printStackTrace();
